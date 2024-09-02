@@ -4,7 +4,13 @@ import subprocess
 import logging
 import os
 import getpass
-import psutil
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logging.warning("psutil module not found. System requirement checks will be limited.")
 
 def get_package_manager():
     """Determine the package manager to use."""
@@ -60,7 +66,17 @@ def check_system_requirements():
     min_ram = 4 * 1024 * 1024 * 1024  # 4 GB
     min_disk_space = 20 * 1024 * 1024 * 1024  # 20 GB
 
-    total_ram = psutil.virtual_memory().total
+    if PSUTIL_AVAILABLE:
+        total_ram = psutil.virtual_memory().total
+    else:
+        # Fallback method for checking RAM on Unix-like systems
+        try:
+            with open('/proc/meminfo', 'r') as mem:
+                total_ram = int(mem.readline().split()[1]) * 1024  # Convert KB to bytes
+        except:
+            logging.warning("Unable to determine system RAM. Skipping RAM check.")
+            total_ram = min_ram  # Assume minimum requirement is met
+
     _, _, disk_space = shutil.disk_usage("/")
 
     if total_ram < min_ram:

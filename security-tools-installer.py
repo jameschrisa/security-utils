@@ -1,99 +1,118 @@
-import argparse
-import logging
+#!/usr/bin/env python3
 import os
 import sys
-from datetime import datetime
-import concurrent.futures
-import shutil
+import venv
+import subprocess
 
-from rich.console import Console
-from rich.panel import Panel
-from rich import print as rprint
-from rich.progress import Progress
-
-from system_utils import (
-    get_package_manager, install_tool, uninstall_tool, check_system_requirements,
-    create_backup, check_and_install_dependencies, setup_homebrew_permissions,
-    is_root, check_directory_permissions, rollback_installation,
-    check_conflicting_software
-)
-from tool_manager import (
-    tools, update_tool_status, get_tools_by_category, get_tool_info,
-    get_all_categories
-)
-
-console = Console()
-
-def setup_logging(verbose=False):
-    """Set up logging configuration."""
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"security_tools_install_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    log_level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(filename=log_file, level=log_level,
-                        format='%(asctime)s - %(levelname)s - %(message)s')
-    if verbose:
-        # Add a stream handler to print logs to console in verbose mode
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        logging.getLogger().addHandler(console_handler)
-
-def list_tools():
-    """List all available tools."""
-    console.print(Panel("Available Security Tools", style="bold magenta"))
-    for category in get_all_categories():
-        rprint(f"\n[bold]{category}:[/bold]")
-        for tool in get_tools_by_category(category):
-            info = get_tool_info(tool)
-            rprint(f"  - {tool}: {info['description']}")
-
-def show_status():
-    """Show installation status of all tools."""
-    status = update_tool_status()
-    console.print(Panel("Installation Status", style="bold magenta"))
-    for tool, info in status.items():
-        if info['installed']:
-            rprint(f"[green]{tool}: Installed (Version: {info['version']})[/green]")
-        else:
-            rprint(f"[red]{tool}: Not installed[/red]")
-
-def install_tools(tools_to_install, package_manager, dry_run=False):
-    """Install specified tools."""
-    with Progress() as progress:
-        tasks = {tool: progress.add_task(f"[green]Installing {tool}...", total=1) for tool in tools_to_install}
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_to_tool = {executor.submit(install_tool, tool, package_manager, dry_run): tool for tool in tools_to_install}
-            for future in concurrent.futures.as_completed(future_to_tool):
-                tool = future_to_tool[future]
-                try:
-                    future.result()
-                    progress.update(tasks[tool], advance=1)
-                    if dry_run:
-                        rprint(f"[yellow]Would install {tool}.[/yellow]")
-                    else:
-                        rprint(f"[green]{tool} has been successfully installed.[/green]")
-                except Exception as e:
-                    progress.update(tasks[tool], advance=1)
-                    rprint(f"[red]Failed to install {tool}. Check the log file for details.[/red]")
-                    logging.error(f"Error installing {tool}: {str(e)}")
-                    if not dry_run:
-                        rollback_installation(tool, package_manager)
-
-def uninstall_tools(tools_to_uninstall, package_manager, dry_run=False):
-    """Uninstall specified tools."""
-    for tool in tools_to_uninstall:
-        try:
-            if dry_run:
-                rprint(f"[yellow]Would uninstall {tool}.[/yellow]")
-            else:
-                uninstall_tool(tool, package_manager)
-                rprint(f"[green]{tool} has been successfully uninstalled.[/green]")
-        except Exception as e:
-            rprint(f"[red]Failed to uninstall {tool}. Check the log file for details.[/red]")
-            logging.error(f"Error uninstalling {tool}: {str(e)}")
+def create_and_use_venv():
+    venv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "secutils_venv")
+    if not os.path.exists(venv_dir):
+        print(f"Creating virtual environment in {venv_dir}")
+        venv.create(venv_dir, with_pip=True)
+    
+    # Get the path to the Python executable in the virtual environment
+    if sys.platform == "win32":
+        venv_python = os.path.join(venv_dir, "Scripts", "python.exe")
+    else:
+        venv_python = os.path.join(venv_dir, "bin", "python")
+    
+    # Install required packages
+    subprocess.check_call([venv_python, "-m", "pip", "install", "rich", "psutil"])
+    
+    # Re-execute the script using the Python from the virtual environment
+    os.execv(venv_python, [venv_python] + sys.argv)
 
 def main():
+    # Import all necessary modules here, after the virtual environment is set up
+    import argparse
+    import logging
+    from datetime import datetime
+    import concurrent.futures
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich import print as rprint
+    from rich.progress import Progress
+
+    from system_utils import (
+        get_package_manager, install_tool, uninstall_tool, check_system_requirements,
+        create_backup, check_and_install_dependencies, setup_homebrew_permissions,
+        is_root, check_directory_permissions, rollback_installation,
+        check_conflicting_software
+    )
+    from tool_manager import (
+        tools, update_tool_status, get_tools_by_category, get_tool_info,
+        get_all_categories
+    )
+
+    # Initialize Console here, inside the main function
+    console = Console()
+
+    def setup_logging():
+        """Set up logging configuration."""
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"security_tools_install_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        logging.basicConfig(filename=log_file, level=logging.INFO,
+                            format='%(asctime)s - %(levelname)s - %(message)s')
+
+    def list_tools():
+        """List all available tools."""
+        console.print(Panel("Available Security Tools", style="bold magenta"))
+        for category in get_all_categories():
+            rprint(f"\n[bold]{category}:[/bold]")
+            for tool in get_tools_by_category(category):
+                info = get_tool_info(tool)
+                rprint(f"  - {tool}: {info['description']}")
+
+    def show_status():
+        """Show installation status of all tools."""
+        status = update_tool_status()
+        console.print(Panel("Installation Status", style="bold magenta"))
+        for tool, info in status.items():
+            if info['installed']:
+                rprint(f"[green]{tool}: Installed (Version: {info['version']})[/green]")
+            else:
+                rprint(f"[red]{tool}: Not installed[/red]")
+
+    def install_tools(tools_to_install, package_manager, dry_run=False):
+        """Install specified tools."""
+        with Progress() as progress:
+            tasks = {tool: progress.add_task(f"[green]Installing {tool}...", total=1) for tool in tools_to_install}
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_tool = {executor.submit(install_tool, tool, package_manager, dry_run): tool for tool in tools_to_install}
+                for future in concurrent.futures.as_completed(future_to_tool):
+                    tool = future_to_tool[future]
+                    try:
+                        future.result()
+                        progress.update(tasks[tool], advance=1)
+                        if dry_run:
+                            rprint(f"[yellow]Would install {tool}.[/yellow]")
+                        else:
+                            rprint(f"[green]{tool} has been successfully installed.[/green]")
+                    except Exception as e:
+                        progress.update(tasks[tool], advance=1)
+                        rprint(f"[red]Failed to install {tool}. Check the log file for details.[/red]")
+                        logging.error(f"Error installing {tool}: {str(e)}")
+
+    def uninstall_tools(tools_to_uninstall, package_manager, dry_run=False):
+        """Uninstall specified tools."""
+        for tool in tools_to_uninstall:
+            try:
+                if dry_run:
+                    rprint(f"[yellow]Would uninstall {tool}.[/yellow]")
+                else:
+                    uninstall_tool(tool, package_manager)
+                    rprint(f"[green]{tool} has been successfully uninstalled.[/green]")
+            except Exception as e:
+                rprint(f"[red]Failed to uninstall {tool}. Check the log file for details.[/red]")
+                logging.error(f"Error uninstalling {tool}: {str(e)}")
+
+    # Set up logging
+    setup_logging()
+
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Security Tools Installer")
     parser.add_argument("--install", nargs="+", help="Specify tools to install")
     parser.add_argument("--uninstall", nargs="+", help="Specify tools to uninstall")
@@ -101,15 +120,9 @@ def main():
     parser.add_argument("--list", action="store_true", help="List all available tools")
     parser.add_argument("--status", action="store_true", help="Show installation status of all tools")
     parser.add_argument("--yes", action="store_true", help="Automatically answer yes to all prompts")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without making changes")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
-
-    setup_logging(args.verbose)
-
-    if not is_root() and not args.dry_run:
-        rprint("[red]This script requires root privileges. Please run with sudo.[/red]")
-        sys.exit(1)
 
     if args.list:
         list_tools()
@@ -203,4 +216,7 @@ def main():
     rprint("[bold]You can view the installation status anytime by running this script with the --status flag.[/bold]")
 
 if __name__ == "__main__":
-    main()
+    if not hasattr(sys, 'real_prefix') and sys.base_prefix == sys.prefix:
+        create_and_use_venv()
+    else:
+        main()
