@@ -1,4 +1,4 @@
-![secutils](./secutils.png "security utilities")
+![secutils](./secutil.png "security utilities")
 
 # Open-Source Security Tools
 
